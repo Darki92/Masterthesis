@@ -707,7 +707,7 @@ nu0 <- 10
 
 ## choice of tuning parameters controlling the accuracy of the likelihood approximation
 gbmax <- 3.5 
-m <- 150 
+m <- 50 
 
 ## 
 s <- Sys.time()
