@@ -1,0 +1,872 @@
+install.packages("copula")
+library(mvtnorm)
+library(copula)
+
+#n <- 500
+#phi <- 0.99 # AR(1) persistence parameter
+#sigma <- 0.08 # standard deviation of AR(1) noise
+#beta <- 0.01 # scalar factor in observation process
+#rho <- -0.5 #parameter for correlation
+#meanbi <- c(0,0)   #two dimensional mean vector
+#varbi <- matrix(c(1,rho*sigma,rho*sigma,sigma^2), ncol=2) #variance covarinace matrix
+#g <- obs <- rep(NA,n)
+#bivn <-  rmvnorm(n, meanbi, varbi)
+#g[1] <- rnorm(1,0,sigma/sqrt(1-phi^2)) # initial log-volatility drawn from stationary distribution of AR(1) process
+#for (k in 2:n){
+#  g[k] <- phi*g[k-1]+bivn[k-1,2]
+#}
+#for (k in 1:n){
+#  obs[k] <- beta*exp(g[k]/2)*bivn[k,1]
+#}
+#plot(obs,xlab="time",ylab="simulated returns",type="l",ylim=c(-max(abs(obs)),max(abs(obs))))
+
+
+
+setwd("P:\\Datenstatistik\\Index01.2000-01.2018")
+
+read.csv("Allianz.csv")->data1
+View(data1)
+#data1[,5]->close
+data1[-which(data1$Close == "null"),5]->close
+close<-as.vector(close)
+close<-as.numeric(close)
+#close <- closeMerck[length(close):1]
+obs<-rep(NA,length(close)-1)
+
+for (k in 2:length(close))
+{obs[k-1]<-log(close[k]/close[k-1])} 
+date <- data1[-which(data1$Close == "null"),1]
+date_time <- strptime(as.vector(date), format="%Y - %m - %d")
+plot(date_time[-1],obs ,type="l",xlab="",ylab="Tagesrendite",ylim=c(-0.15,0.15),cex.lab=1.2,cex.axis=1.2,main="Zeitreihe der täglichen Renditen für Allianz",cex.main=1.2)
+
+
+
+
+
+read.csv("GeneralMotors.csv")->data1
+View(data1)
+data1[,5]->close
+#close<-as.vector(close)
+#close<-as.numeric(close)
+#close <- closeMerck[length(close):1]
+obs<-rep(NA,length(close)-1)
+
+for (k in 2:length(close))
+{obs[k-1]<-log(close[k]/close[k-1])} 
+plot(obs,type="l",xlab="",ylab="Tagesrendite",xaxt="n",ylim=c(-0.15,0.15),cex.lab=1.2,cex.axis=1.2,main="Zeitreihe der täglichen Renditen für Merck",cex.main=1.2)
+summary(abs(obs))
+
+
+read.csv("Volkswagen.csv")->data1
+View(data1)
+data1[-(which(data1$Close == "null")),5]->close
+close<-as.vector(close)
+close<-as.numeric(close)
+#close <- closeMerck[length(close):1]
+obs<-rep(NA,length(close)-1)
+
+for (k in 2:length(close))
+{obs[k-1]<-log(close[k]/close[k-1])} 
+plot(obs,type="l",xlab="",ylab="Tagesrendite",xaxt="n",ylim=c(-0.15,0.15),cex.lab=1.2,cex.axis=1.2,main="Zeitreihe der täglichen Renditen für Merck",cex.main=1.2)
+summary(abs(obs))
+
+
+
+
+#####################
+### SV-N and SV-T ###
+#####################
+
+
+## function that converts natural (constrained) parameters to working (unconstrained) parameters
+pn2pw <- function(beta,phi,sigma,nu){
+  lbeta <- log(beta)
+  lphi <- log((1+phi)/(1-phi))
+  lsigma <- log(sigma)
+  lnu <- log(nu)
+  parvect <- c(lbeta,lphi,lsigma,lnu)
+  return(parvect)
+}
+
+## function that performs the inverse transformation
+pw2pn <- function(parvect){
+  beta <- exp(parvect[1])
+  phi <- (exp(parvect[2])-1)/(exp(parvect[2])+1)
+  sigma <- exp(parvect[3])
+  nu <- exp(parvect[4])
+  return(list(beta=beta,phi=phi,sigma=sigma,nu=nu))
+}
+
+## function that computes minus the (approximate) log-likelihood
+mllk <- function(parvect,y,m){
+  ny <- length(y)
+  p <- pw2pn(parvect)
+  if (model=="SV0") p$nu <- 10^10
+  K <- m+1
+  gb <- seq(-gbmax,gbmax,length=K)
+  g <- (gb[-1]+gb[-K])*0.5    #mittelpunkt der intervalle->b sternchen         
+  beg <- p$beta*exp(g/2)   
+  gamma <- matrix(0,m,m)
+  E <- p$phi*g                #vector of all possibilities for phi times g
+  intlen <- gb[2]-gb[1]       #länger der intervalle
+  for (i in 1:m){
+    goo <- dnorm(g,E[i],p$sigma)*intlen #vector of WK of observing g given all possibilites before times länge des intervalls
+    gamma[i,] <- goo/sum(goo)
+  }
+  delta <- dnorm(g,0,p$sigma/sqrt(1-p$phi^2))*intlen
+  foo <- delta*1/beg*dt(y[1]/beg,p$nu) # i-ter Eintrag: g=b_i und epsilon=y_1/(beta exp(b_i/2))
+  lscale <- log(sum(foo))
+  phi <- foo/sum(foo)   #phi standardisierte forward variablen
+  for (t in 2:ny){
+    foo <- phi%*%gamma*1/beg*dt(y[t]/beg,p$nu)
+    sumfoo <- sum(foo); lscale <- lscale+log(sumfoo); foo <- foo/sumfoo # scaling
+  }
+  return(-lscale)
+}
+
+## function that, for given initial values, runs the numerical maximization of the log-likelihood and returns the results
+mle <- function(y,m,beta0,phi0,sigma0,nu0){
+  parvect <- pn2pw(beta0,phi0,sigma0,nu0)
+  mod <- nlm(mllk,parvect,y=y,m=m,stepmax=3,print.level=2)
+  p <- pw2pn(mod$estimate)
+  if (model=="SVt") return(list(beta=p$beta,phi=p$phi,sigma=p$sigma,nu=p$nu,mllk=mod$minimum))
+  if (model=="SV0") return(list(beta=p$beta,phi=p$phi,sigma=p$sigma,mllk=mod$minimum))
+}
+
+## choice of initial parameter values
+phi0 <- 0.98
+sigma0 <- 0.3
+beta0 <- 0.05
+nu0 <- 10
+
+## choice of tuning parameters controlling the accuracy of the likelihood approximation
+gbmax <- 3 
+m <- 150 
+
+## choice of the model to be fitted (either with conditionally normally distribution or with conditionally t-distributed returns)
+model <- "SV0" 
+s <- Sys.time()
+modSVN <- mle(obs,m,beta0,phi0,sigma0,nu0)
+Sys.time()-s
+
+BICSVN <- 2*modSVNRoyalDutchShell$mllk+log(length(obs))*3
+
+
+#viterbi decoding for both gaussian
+viterbiSVN <- function(obs,mod,m,gbmax){
+  n <- length(obs)
+  K <- m+1
+  beta <- mod$beta
+  phi <- mod$phi
+  sigma <- mod$sigma
+  g <- seq(-gbmax,gbmax,length=m+1)                 
+  intlen <- g[2]-g[1]                              
+  bstar <- (g[-1]+g[-(m+1)])*0.5              
+  Gamma <- matrix(0,m,m) 
+  for (i in 1:m){
+    Gamma[i,] <- dnorm(bstar,phi*bstar[i],sigma)*intlen     # m*m transition probs of the approx. HMM
+  }
+  delta <- dnorm(bstar,0,sigma/sqrt(1-phi^2))*intlen   # (stationary) initial distribution
+  xi <- matrix(0,n,m)
+  foo <- delta*dnorm(obs[1],0,exp(bstar/2)*beta)
+  xi[1,] <- foo/sum(foo)
+  for (i in 2:n){
+    foo <- apply(xi[i-1,]*Gamma,2,max)*dnorm(obs[i],0,exp(bstar/2)*beta)
+    xi[i,] <- foo/sum(foo)
+  }
+  iv <- numeric(n)
+  iv[n] <- which.max(xi[n,])
+  for (i in (n-1):1){
+    iv[i] <- which.max(Gamma[,iv[i+1]]*xi[i,])
+  }
+  iv
+}
+
+#decode state sequence for share return data:
+statesSVN <- viterbiSVN(obs,modSVN,m,gbmax)
+
+#plot the results:
+g <- seq(-gbmax,gbmax,length=m+1)
+h <- g[2]-g[1]  
+bstar <- (g[-1]+g[-(m+1)])*0.5              
+volaSVN <- bstar[statesSVN] # Viterbi-decoded volatility levels
+
+par(mfrow=c(2,1))
+plot(date_time[-1],obs ,type="l",xlab="",ylab="Tagesrendite",ylim=c(-0.15,0.15),cex.lab=1.2,cex.axis=1.2,main="Zeitreihe der täglichen Renditen für Allianz",cex.main=1.2)
+plot(date_time[-1],modSVN$beta*exp(volaSVN/2),type="l",xlab="time",ylab="decoded volatilities",main="decoded log-volatility levels for SVN")
+
+
+
+###Pseudo residuals for SVN
+#function to calculate pseudo residuals
+
+#1.function for calculating log forward probabilities
+
+lforwardSVN <- function(y,mod,m){
+  n <- length(y)
+  lalpha <- matrix (NA,m,n)
+  beta <- mod$beta
+  phi <- mod$phi
+  sigma <- mod$sigma
+  nu <- 10^10
+  g <- seq(-gbmax,gbmax,length=m+1)                 
+  intlen <- g[2]-g[1]                              
+  bstar <- (g[-1]+g[-(m+1)])*0.5
+  K <- m+1            
+  beg <- beta*exp(bstar/2)   
+  gamma <- matrix(0,m,m)
+  E <- phi*bstar                #vector of all possibilities for phi times g
+  intlen <- g[2]-g[1]       #länger der intervalle
+  for (i in 1:m){
+    goo <- dnorm(bstar,E[i],sigma)*intlen #vector of WK of observing g given all possibilites before times länge des intervalls
+    gamma[i,] <- goo/sum(goo)
+  }
+  delta <- dnorm(bstar,0,sigma/sqrt(1-phi^2))*intlen
+  foo <- delta*1/beg*dt(y[1]/beg,nu) # i-ter Eintrag: g=b_i und epsilon=y_1/(beta exp(b_i/2))
+  lscale <- log(sum(foo))
+  foo <- foo/sum(foo)   #foo standardisierte forward variablen
+  lalpha[,1] <- lscale+log(foo)
+  for (t in 2:n){
+    foo <- foo%*%gamma*1/beg*dt(y[t]/beg,nu)
+    sumfoo <- sum(foo); lscale <- lscale+log(sumfoo); foo <- foo/sumfoo # scaling
+    lalpha[,t] <- log(foo)+lscale 
+  }
+  return(lalpha)
+} 
+
+
+
+#2. function for calculating the forward pseudo-residuals
+
+PseudoResSVN<- function(y,mod,m){
+  n <-length(y)
+  la <- lforwardSVN(y,mod,m)
+  beta <- mod$beta
+  phi <- mod$phi
+  sigma <- mod$sigma
+  nu <- 10^10
+  g <- seq(-gbmax,gbmax,length=m+1)                 
+  intlen <- g[2]-g[1]                              
+  bstar <- (g[-1]+g[-(m+1)])*0.5
+  K <- m+1
+  beg <- beta*exp(bstar/2)  
+  E <- phi*bstar
+  Res<-rep(NA,n)
+  gamma <- matrix(0,m,m)
+  for (i in 1:m){
+    goo <- dnorm(bstar,E[i],sigma)*intlen #vector of WK of observing g given all possibilites before times länge des intervalls
+    gamma[i,] <- goo/sum(goo)
+  }
+  P<-matrix(NA,n,m)
+  for (j in 1:m){  
+    P[,j]<-pt(y/beg[j],nu)
+  }
+  delta <- dnorm(bstar,0,sigma/sqrt(1-phi^2))*intlen
+  Res[1]<-qnorm(t(delta)%*%P[1,]) 
+  for (i in 2:n){
+    c<-max(la[,i-1]) # to avoid underflow; the constant c cancels in calculation below
+    a<-exp(la[,i-1]-c) 
+    Res[i]<-qnorm(t(a)%*%(gamma/sum(a))%*%P[i,])
+  }
+  return(Res)
+}
+
+ResSVN <- PseudoResSVN(obs,modSVN,m) 
+plot(ResSVN)
+qqnorm(ResSVN)
+
+summary(Res[-902])
+which(Res == Inf)
+
+
+
+
+
+## choice of the model to be fitted (either with conditionally normally distribution or with conditionally t-distributed returns)
+model <- "SVt"
+s <- Sys.time()
+modSVT <- mle(obs,m,beta0,phi0,sigma0,nu0)
+Sys.time()-s
+
+BICSVT <- 2*modSVTRoyalDutchShell$mllk+log(length(obs))*4
+
+
+#viterbi decoding for gaussian and t
+viterbiSVT <- function(obs,mod,m,gbmax){
+  n <- length(obs)
+  K <- m+1
+  beta <- mod$beta
+  phi <- mod$phi
+  sigma <- mod$sigma
+  nu <- mod$nu
+  g <- seq(-gbmax,gbmax,length=m+1)                 
+  intlen <- g[2]-g[1]                              
+  bstar <- (g[-1]+g[-(m+1)])*0.5  
+  beg <- beta*exp(bstar/2) 
+  Gamma <- matrix(0,m,m) 
+  for (i in 1:m){
+    Gamma[i,] <- dnorm(bstar,phi*bstar[i],sigma)*intlen     # m*m transition probs of the approx. HMM
+  }
+  delta <- dnorm(bstar,0,sigma/sqrt(1-phi^2))*intlen   # (stationary) initial distribution
+  xi <- matrix(0,n,m)
+  foo <- delta*1/beg*dt(obs[1]/beg,nu)
+  xi[1,] <- foo/sum(foo)
+  for (i in 2:n){
+    foo <- apply(xi[i-1,]*Gamma,2,max)*1/beg*dt(obs[i]/beg,nu)
+    xi[i,] <- foo/sum(foo)
+  }
+  iv <- numeric(n)
+  iv[n] <- which.max(xi[n,])
+  for (i in (n-1):1){
+    iv[i] <- which.max(Gamma[,iv[i+1]]*xi[i,])
+  }
+  iv
+}
+
+#decode state sequence for share return data:
+statesSVT <- viterbiSVT(obs,modSVT,m,gbmax)
+
+#plot the results:
+b <- seq(-gbmax,gbmax,length=m+1)                 
+h <- b[2]-b[1]                              
+bstar <- (b[-1]+b[-(m+1)])*0.5              
+volaSVT <- bstar[statesSVT] # Viterbi-decoded volatility levels
+
+par(mfrow=c(2,1))
+plot(obs,type="l",xlab="time",ylab="daily returns",ylim=c(-0.1,0.1),cex.lab=1.2,cex.axis=1.2,main="time series of Deutsch Bank share returns",cex.main=1.2)
+plot(volaSVT,type="l",xlab="time",ylab="decoded (log-)volatilities",main="decoded volatility levels for SVT")
+
+
+
+###Pseudo residuals for SVT
+#function to calculate pseudo residuals
+
+#1.function for calculating log forward probabilities
+
+lforwardSVT <- function(y,mod,m){
+  n <- length(y)
+  lalpha <- matrix (NA,m,n)
+  beta <- mod$beta
+  phi <- mod$phi
+  sigma <- mod$sigma
+  nu <- mod$nu
+  g <- seq(-gbmax,gbmax,length=m+1)                 
+  intlen <- g[2]-g[1]                              
+  bstar <- (g[-1]+g[-(m+1)])*0.5
+  K <- m+1            
+  beg <- beta*exp(bstar/2)   
+  gamma <- matrix(0,m,m)
+  E <- phi*bstar                #vector of all possibilities for phi times g
+  intlen <- g[2]-g[1]       #länger der intervalle
+  for (i in 1:m){
+    goo <- dnorm(bstar,E[i],sigma)*intlen #vector of WK of observing g given all possibilites before times länge des intervalls
+    gamma[i,] <- goo/sum(goo)
+  }
+  delta <- dnorm(bstar,0,sigma/sqrt(1-phi^2))*intlen
+  foo <- delta*1/beg*dt(y[1]/beg,nu) # i-ter Eintrag: g=b_i und epsilon=y_1/(beta exp(b_i/2))
+  lscale <- log(sum(foo))
+  foo <- foo/sum(foo)   #foo standardisierte forward variablen
+  lalpha[,1] <- lscale+log(foo)
+  for (t in 2:n){
+    foo <- foo%*%gamma*1/beg*dt(y[t]/beg,nu)
+    sumfoo <- sum(foo); lscale <- lscale+log(sumfoo); foo <- foo/sumfoo # scaling
+    lalpha[,t] <- log(foo)+lscale 
+  }
+  return(lalpha)
+} 
+
+
+
+#2. function for calculating the forward pseudo-residuals
+
+PseudoResSVT<- function(y,mod,m){
+  n <-length(y)
+  la <- lforwardSVT(y,mod,m)
+  beta <- mod$beta
+  phi <- mod$phi
+  sigma <- mod$sigma
+  nu <- mod$nu
+  g <- seq(-gbmax,gbmax,length=m+1)                 
+  intlen <- g[2]-g[1]                              
+  bstar <- (g[-1]+g[-(m+1)])*0.5
+  K <- m+1
+  beg <- beta*exp(bstar/2)  
+  E <- phi*bstar
+  Res<-rep(NA,n)
+  gamma <- matrix(0,m,m)
+  for (i in 1:m){
+    goo <- dnorm(bstar,E[i],sigma)*intlen #vector of WK of observing g given all possibilites before times länge des intervalls
+    gamma[i,] <- goo/sum(goo)
+  }
+  P<-matrix(NA,n,m)
+  for (j in 1:m){  
+    P[,j]<-pt(y/beg[j],nu)
+  }
+  delta <- dnorm(bstar,0,sigma/sqrt(1-phi^2))*intlen
+  Res[1]<-qnorm(t(delta)%*%P[1,]) 
+  for (i in 2:n){
+    c<-max(la[,i-1]) # to avoid underflow; the constant c cancels in calculation below
+    a<-exp(la[,i-1]-c) 
+    Res[i]<-qnorm(t(a)%*%(gamma/sum(a))%*%P[i,])
+  }
+  return(Res)
+}
+
+ResSVT <- PseudoResSVT(obs,modSVT,m)
+plot(ResSVT)
+qqnorm(ResSVT)
+
+
+
+
+
+
+############
+### SV-L ###
+############
+
+
+## function that converts natural (constrained) parameters to working (unconstrained) parameters
+pn2pw <- function(beta,phi,sigma,rho){
+  lbeta <- log(beta)
+  lphi <- log((1+phi)/(1-phi))
+  lsigma <- log(sigma)
+  lrho <- log((1+rho)/(1-rho))
+  parvect <- c(lbeta,lphi,lsigma,lrho)
+  return(parvect)
+}
+
+## function that performs the inverse transformation
+pw2pn <- function(parvect){
+  beta <- exp(parvect[1])
+  phi <- (exp(parvect[2])-1)/(exp(parvect[2])+1)
+  sigma <- exp(parvect[3])
+  rho <- (exp(parvect[4])-1)/(exp(parvect[4])+1)
+  return(list(beta=beta,phi=phi,sigma=sigma,rho=rho))
+}
+
+## function for mu within the transition matrix
+transmu <- function(g,x,p){
+  p$phi*g+(p$rho*p$sigma*x)/(p$beta*exp(g/2))
+}
+
+## function that computes minus the (approximate) log-likelihood
+mllk <- function(parvect,x,m){
+  nx <- length(x)
+  p <- pw2pn(parvect)
+  K <- m+1
+  gb <- seq(-gbmax,gbmax,length=K)
+  g <- (gb[-1]+gb[-K])*0.5             
+  beg <- p$beta*exp(g/2)   
+  gamma <- matrix(0,m,m)
+  E <- p$phi*g
+  intlen <- gb[2]-gb[1]
+  delta <- dnorm(g,0,p$sigma/sqrt(1-p$phi^2))*intlen # nicht exakt die gleiche Approximation wie in ZML Seite 264
+  foo <- delta*dnorm(x[1],0,beg)
+  lscale <- log(sum(foo))
+  for (t in 2:nx){
+    for (i in 1:m){
+      goo <- dnorm(g,transmu(g[i],x[t-1],p),p$sigma*sqrt(1-p$rho^2))*intlen
+      gamma[i,] <- goo/sum(goo)
+    }
+    foo <- foo%*%gamma*dnorm(x[t],0,beg)
+    sumfoo <- sum(foo); lscale <- lscale+log(sumfoo); foo <- foo/sumfoo 
+  }
+  return(-lscale)
+}
+
+## function that, for given initial values, runs the numerical maximization of the log-likelihood and returns the results
+mle <- function(x,m,beta0,phi0,sigma0,rho0){
+  parvect <- pn2pw(beta0,phi0,sigma0,rho0)
+  mod <- nlm(mllk,parvect,x=x,m=m,stepmax=3,print.level=2,iterlim=10000)
+  p <- pw2pn(mod$estimate)
+  return(list(beta=p$beta,phi=p$phi,sigma=p$sigma,rho=p$rho,mllk=mod$minimum))
+}
+
+## choice of initial parameter values
+phi0 <- 0.98
+sigma0 <- 0.1
+beta0 <- 0.01
+rho0 <- -0.2
+
+## choice of tuning parameters controlling the accuracy of the likelihood approximation
+gbmax <- 3 
+m <- 150 
+
+## choice of the model to be fitted (either with conditionally normally distribution or with conditionally t-distributed returns)
+s <- Sys.time()
+modSVL <- mle(obs,m,beta0,phi0,sigma0,rho0)
+Sys.time()-s
+modSVL
+
+BICSVL <- 2*modSVLRoyalDutchShell$mllk+log(length(obs))*4
+
+#viterbi decoding for correlated Gaussian
+transmu2 <- function(g,x,phi,rho,sigma,beta){
+  phi*g+(rho*sigma*x)/(beta*exp(g/2))
+}
+
+viterbiSVL <- function(x,mod,m,bm){
+  nx <- length(x) 
+  K <- m+1
+  gb <- seq(-gbmax,gbmax,length=K)
+  beta <- mod$beta
+  phi <- mod$phi
+  sigma <- mod$sigma
+  rho <- mod$rho
+  intlen <- gb[2]-gb[1] 
+  g <- (gb[-1]+gb[-K])*0.5
+  beg <- beta*exp(g/2)
+  Gammaarray <- array(0,c(m,m,nx-1))
+  delta <- dnorm(g,0,sigma/sqrt(1-phi^2))*intlen   # (stationary) initial distribution
+  xi <- matrix(0,nx,m)
+  foo  <- delta*dnorm(x[1],0,beg)
+  xi[1,] <- foo/sum(foo)
+  for (t in 2:nx){
+    for (i in 1:m){
+      goo <- dnorm(g,transmu2(g[i],x[t-1],phi,rho,sigma,beta),sigma*sqrt(1-rho^2))*intlen
+      Gammaarray[i, ,t-1] <- goo/sum(goo)
+    }
+    foo <- apply(xi[t-1,]*Gammaarray[,,t-1],2,max)*dnorm(x[t],0,beg)
+    xi[t,] <- foo/sum(foo)
+  }
+  iv <- numeric(nx)
+  iv[nx] <- which.max(xi[nx,])
+  for (i in (nx-1):1){
+    iv[i] <- which.max(Gammaarray[,iv[i+1],i]*xi[i,])
+  }
+  iv
+}
+
+#decode state sequence for share return data:
+statesSVL <- viterbiSVL(obs,modSVL,m,gbmax)
+
+#plot the results:
+b <- seq(-gbmax,gbmax,length=m+1)                 
+h <- b[2]-b[1]                              
+bstar <- (b[-1]+b[-(m+1)])*0.5              
+volaSVL <- bstar[statesSVL] # Viterbi-decoded volatility levels
+
+par(mfrow=c(2,1))
+plot(obs,type="l",xlab="time",ylab="daily returns",ylim=c(-0.1,0.1),cex.lab=1.2,cex.axis=1.2,main="time series of Deutsch Bank share returns",cex.main=1.2)
+plot(volaSVL,type="l",xlab="time",ylab="decoded (log-)volatilities",main="decoded volatility levels for SVL")
+
+
+###Pseudo residuals for SVT
+#function to calculate pseudo residuals
+
+#1.function for calculating log forward probabilities
+
+lforwardSVT <- function(y,mod,m){
+  n <- length(y)
+  lalpha <- matrix (NA,m,n)
+  beta <- mod$beta
+  phi <- mod$phi
+  sigma <- mod$sigma
+  nu <- mod$nu
+  g <- seq(-gbmax,gbmax,length=m+1)                 
+  intlen <- g[2]-g[1]                              
+  bstar <- (g[-1]+g[-(m+1)])*0.5
+  K <- m+1            
+  beg <- beta*exp(bstar/2)   
+  gamma <- matrix(0,m,m)
+  E <- phi*bstar                #vector of all possibilities for phi times g
+  intlen <- g[2]-g[1]       #länger der intervalle
+  for (i in 1:m){
+    goo <- dnorm(bstar,E[i],sigma)*intlen #vector of WK of observing g given all possibilites before times länge des intervalls
+    gamma[i,] <- goo/sum(goo)
+  }
+  delta <- dnorm(bstar,0,sigma/sqrt(1-phi^2))*intlen
+  foo <- delta*1/beg*dt(y[1]/beg,nu) # i-ter Eintrag: g=b_i und epsilon=y_1/(beta exp(b_i/2))
+  lscale <- log(sum(foo))
+  foo <- foo/sum(foo)   #foo standardisierte forward variablen
+  lalpha[,1] <- lscale+log(foo)
+  for (t in 2:n){
+    foo <- foo%*%gamma*1/beg*dt(y[t]/beg,nu)
+    sumfoo <- sum(foo); lscale <- lscale+log(sumfoo); foo <- foo/sumfoo # scaling
+    lalpha[,t] <- log(foo)+lscale 
+  }
+  return(lalpha)
+} 
+
+
+
+#2. function for calculating the forward pseudo-residuals
+
+PseudoResSVT<- function(y,mod,m){
+  n <-length(y)
+  la <- lforwardSVT(y,mod,m)
+  beta <- mod$beta
+  phi <- mod$phi
+  sigma <- mod$sigma
+  nu <- mod$nu
+  g <- seq(-gbmax,gbmax,length=m+1)                 
+  intlen <- g[2]-g[1]                              
+  bstar <- (g[-1]+g[-(m+1)])*0.5
+  K <- m+1
+  beg <- beta*exp(bstar/2)  
+  E <- phi*bstar
+  Res<-rep(NA,n)
+  gamma <- matrix(0,m,m)
+  for (i in 1:m){
+    goo <- dnorm(bstar,E[i],sigma)*intlen #vector of WK of observing g given all possibilites before times länge des intervalls
+    gamma[i,] <- goo/sum(goo)
+  }
+  P<-matrix(NA,n,m)
+  for (j in 1:m){  
+    P[,j]<-pt(y/beg[j],nu)
+  }
+  delta <- dnorm(bstar,0,sigma/sqrt(1-phi^2))*intlen
+  Res[1]<-qnorm(t(delta)%*%P[1,]) 
+  for (i in 2:n){
+    c<-max(la[,i-1]) # to avoid underflow; the constant c cancels in calculation below
+    a<-exp(la[,i-1]-c) 
+    Res[i]<-qnorm(t(a)%*%(gamma/sum(a))%*%P[i,])
+  }
+  return(Res)
+}
+
+
+
+
+
+
+
+#############
+### SV-LT ###
+#############
+library(copula)
+
+## function that converts natural (constrained) parameters to working (unconstrained) parameters
+pn2pw <- function(beta,phi,sigma,rho,nu){
+  lbeta <- log(beta)
+  lphi <- log((1+phi)/(1-phi))
+  lsigma <- log(sigma)
+  lrho <- log((1+rho)/(1-rho))
+  lnu <- log(nu)
+  parvect <- c(lbeta,lphi,lsigma,lrho,lnu)
+  return(parvect)
+}
+
+## function that performs the inverse transformation
+pw2pn <- function(parvect){
+  beta <- exp(parvect[1])
+  phi <- (exp(parvect[2])-1)/(exp(parvect[2])+1)
+  sigma <- exp(parvect[3])
+  rho <- (exp(parvect[4])-1)/(exp(parvect[4])+1)
+  nu <- exp(parvect[5])
+  return(list(beta=beta,phi=phi,sigma=sigma,rho=rho,nu=nu))
+}
+
+## function that computes minus the (approximate) log-likelihood
+mllk <- function(parvect,x,m){
+  nx <- length(x)
+  p <- pw2pn(parvect)
+  K <- m+1
+  gb <- seq(-gbmax,gbmax,length=K)
+  g <- (gb[-1]+gb[-K])*0.5             
+  beg <- p$beta*exp(g/2)   
+  gamma <- matrix(0,m,m)
+  E <- p$phi*g
+  intlen <- gb[2]-gb[1]
+  delta <- dnorm(g,0,p$sigma/sqrt(1-p$phi^2))*intlen # nicht exakt die gleiche Approximation wie in ZML Seite 264
+  foo <- delta*1/beg*dt(x[1]/beg,p$nu)
+  lscale <- log(sum(foo))
+  pnn<-matrix(NA,m,m)
+  for (j in 1:m){
+    pnn[,j]<-pnorm(g[j],E,p$sigma)
+  }
+  for (t in 2:nx){
+    ptt<-pt(x[t-1]/beg,p$nu)
+    for (j in 1:m){
+      gamma[,j] <- dnorm(g[j],E,p$sigma)*dCopula(cbind(ptt,pnn[,j]),normalCopula(p$rho,dim=2))*intlen
+    }
+    for (i in 1:m){
+      if (sum(gamma[i,])>0) gamma[i,] <- gamma[i,]/sum(gamma[i,])
+    }
+    foo <- foo%*%gamma*1/beg*dt(x[t]/beg,p$nu)
+    sumfoo <- sum(foo); lscale <- lscale+log(sumfoo); foo <- foo/sumfoo # scaling
+  }
+  return(-lscale)
+}
+
+## function that, for given initial values, runs the numerical maximization of the log-likelihood and returns the results
+mle <- function(x,m,beta0,phi0,sigma0,rho0,nu0){
+  parvect <- pn2pw(beta0,phi0,sigma0,rho0,nu0)
+  mod <- nlm(mllk,parvect,x=x,m=m,stepmax=3,print.level=2,iterlim=10000)
+  p <- pw2pn(mod$estimate)
+  return(list(beta=p$beta,phi=p$phi,sigma=p$sigma,rho=p$rho,nu=p$nu,mllk=mod$minimum))
+}
+
+## choice of initial parameter values
+phi0 <- 0.98
+sigma0 <- 0.1
+beta0 <- 0.01
+rho0 <- 0
+nu0 <- 10
+
+## choice of tuning parameters controlling the accuracy of the likelihood approximation
+gbmax <- 3.5 
+m <- 150 
+
+## 
+s <- Sys.time()
+modSVLT <- mle(obs,m,beta0,phi0,sigma0,rho0,nu0)
+Sys.time()-s
+modSVLT
+
+BICDAXSVLT <- 2*modSVLTRoyalDutchShell$mllk+log(length(obs))*5
+
+
+#viterbi decoding
+viterbiSVLT <- function(obs,mod,m,gbmax){
+  n <- length(obs)
+  K <- m+1
+  beta <- mod$beta
+  phi <- mod$phi
+  sigma <- mod$sigma
+  rho <- mod$rho
+  nu <- mod$nu
+  gb <- seq(-gbmax,gbmax,length=m+1)                 
+  intlen <- gb[2]-gb[1]
+  bstar <- (gb[-1]+gb[-(m+1)])*0.5 
+  beg <- beta*exp(bstar/2)
+  E <- phi*bstar
+  delta <- dnorm(bstar,0,sigma/sqrt(1-phi^2))*intlen
+  xi <- matrix(0,n,m)
+  foo <- delta*dnorm(obs[1],0,beg)
+  xi[1,] <- foo/sum(foo)
+  Gammaarray <- array(0,c(m,m,nx-1)) 
+  pnn<-matrix(NA,m,m)   # ab hier für gamma matrix, die von t abhängt
+  for (j in 1:m){
+    pnn[,j]<-pnorm(bstar[j],E,sigma)
+  }
+  for (t in 2:n){
+    ptt<-pt(x[t-1]/beg,nu)
+    for (j in 1:m){
+      Gammaarray[,j,t-1] <- dnorm(bstar[j],E,sigma)*dCopula(cbind(ptt,pnn[,j]),normalCopula(rho,dim=2))*intlen
+    }
+    for (i in 1:m){
+      if (sum(Gammaarray[i,,t-1])>0) Gammaarray[i,,t-1] <- Gammaarray[i,,t-1]/sum(Gammaarray[i,,t-1])
+    }
+    foo <- apply(xi[t-1,]*Gammaarray[,,t-1],2,max)*dnorm(x[t],0,beg)
+    xi[t,] <- foo/sum(foo)
+  }
+  iv <- numeric(n)
+  iv[n] <- which.max(xi[n,])
+  for (i in (n-1):1){
+    iv[i] <- which.max(Gammaarray[,iv[i+1],i]*xi[i,])
+  }
+  iv
+}
+
+#decode state sequence for share return data:
+statesSVLT <- viterbiSVLT(obs,modSVLT,m,gbmax)
+
+#plot the results:
+b <- seq(-gbmax,gbmax,length=m+1)                 
+h <- b[2]-b[1]                              
+bstar <- (b[-1]+b[-(m+1)])*0.5              
+volaSVLT <- bstar[statesSVLT] # Viterbi-decoded volatility levels
+
+par(mfrow=c(2,1))
+plot(obs,type="l",xlab="time",ylab="daily returns",ylim=c(-0.1,0.1),cex.lab=1.2,cex.axis=1.2,main="time series of Deutsch Bank share returns",cex.main=1.2)
+plot(volaSVLT,type="l",xlab="time",ylab="decoded (log-)volatilities",main="decoded volatility levels for SVLT")
+
+
+
+
+
+##############
+### SV-LTS ###
+##############
+
+install.packages("sn")
+library(sn)
+
+## function that converts natural (constrained) parameters to working (unconstrained) parameters
+pn2pw <- function(beta,phi,sigma,rho,nu,xi,alpha){
+  lbeta <- log(beta)
+  lphi <- log((1+phi)/(1-phi))
+  lsigma <- log(sigma)
+  lrho <- log((1+rho)/(1-rho))
+  lnu <- log(nu)
+  lxi <- xi
+  lalpha <- alpha
+  parvect <- c(lbeta,lphi,lsigma,lrho,lnu,lxi,lalpha)
+  return(parvect)
+}
+
+## function that performs the inverse transformation
+pw2pn <- function(parvect){
+  beta <- exp(parvect[1])
+  phi <- (exp(parvect[2])-1)/(exp(parvect[2])+1)
+  sigma <- exp(parvect[3])
+  rho <- (exp(parvect[4])-1)/(exp(parvect[4])+1)
+  nu <- exp(parvect[5])
+  xi <- parvect[6]
+  alpha <- parvect[7]
+  return(list(beta=beta,phi=phi,sigma=sigma,rho=rho,nu=nu,xi=xi,alpha=alpha))
+}
+
+## function that computes minus the (approximate) log-likelihood
+mllk <- function(parvect,x,m){
+  nx <- length(x)
+  p <- pw2pn(parvect)
+  K <- m+1
+  gb <- seq(-gbmax,gbmax,length=K)
+  g <- (gb[-1]+gb[-K])*0.5             
+  beg <- p$beta*exp(g/2)   
+  gamma <- matrix(0,m,m)
+  E <- p$phi*g
+  intlen <- gb[2]-gb[1]
+  delta <- dnorm(g,0,p$sigma/sqrt(1-p$phi^2))*intlen # nicht exakt die gleiche Approximation wie in ZML Seite 264
+  foo <- delta*1/p$nu*dst(x[1]/beg,xi=p$xi,omega=1,alpha=p$alpha,nu=p$nu)
+  lscale <- 0
+  for (t in 2:nx){
+    for (j in 1:m){
+      gamma[,j] <- dnorm(g[j],E,p$sigma)*dCopula(cbind(pst(x[t-1]/beg,xi=p$xi,omega=1,alpha=p$alpha,nu=p$nu),pnorm(g[j],E,p$sigma)),normalCopula(p$rho,dim=2))*intlen
+    }
+    for (i in 1:m){
+      if (sum(gamma[i,])>0) gamma[i,] <- gamma[i,]/sum(gamma[i,])
+    }
+    foo <- foo%*%gamma*1/beg*dst(x[t]/beg,xi=p$xi,omega=1,alpha=p$alpha,nu=p$nu)
+    sumfoo <- sum(foo); lscale <- lscale+log(sumfoo); foo <- foo/sumfoo # scaling
+  }
+  return(-lscale)
+}
+
+## function that, for given initial values, runs the numerical maximization of the log-likelihood and returns the results
+mle <- function(x,m,beta0,phi0,sigma0,rho0,nu0,xi0,alpha0){
+  parvect <- pn2pw(beta0,phi0,sigma0,rho0,nu0,xi0,alpha0)
+  mod <- nlm(mllk,parvect,x=x,m=m,stepmax=3,print.level=2,iterlim=10000)
+  p <- pw2pn(mod$estimate)
+  return(list(beta=p$beta,phi=p$phi,sigma=p$sigma,rho=p$rho,nu=p$nu,xi=xi,alpha=alpha,mllk=mod$minimum))
+}
+
+## choice of initial parameter values
+phi0 <- 0.98
+sigma0 <- 0.1
+beta0 <- 0.01
+rho0 <- 0
+nu0 <- 10
+xi0 <- 0
+alpha0 <- 0
+
+## choice of tuning parameters controlling the accuracy of the likelihood approximation
+gbmax <- 2 
+m <- 80 
+
+## 
+s <- Sys.time()
+modSVLTSRoyalDutchShell <- mle(obs,m,beta0,phi0,sigma0,rho0,nu0,xi0,alpha0)
+Sys.time()-s
+
+2*modSVLTS$mllk+2*6
+
+
+
+
+
+
+
