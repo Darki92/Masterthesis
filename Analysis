@@ -427,7 +427,7 @@ qqnorm(ResSVT)
 
 
 ## function that converts natural (constrained) parameters to working (unconstrained) parameters
-pn2pw <- function(beta,phi,sigma,rho){
+pn2pwSVL <- function(beta,phi,sigma,rho){
   lbeta <- log(beta)
   lphi <- log((1+phi)/(1-phi))
   lsigma <- log(sigma)
@@ -437,7 +437,7 @@ pn2pw <- function(beta,phi,sigma,rho){
 }
 
 ## function that performs the inverse transformation
-pw2pn <- function(parvect){
+pw2pnSVL <- function(parvect){
   beta <- exp(parvect[1])
   phi <- (exp(parvect[2])-1)/(exp(parvect[2])+1)
   sigma <- exp(parvect[3])
@@ -446,14 +446,14 @@ pw2pn <- function(parvect){
 }
 
 ## function for mu within the transition matrix
-transmu <- function(g,x,p){
+transmuSVL <- function(g,x,p){
   p$phi*g+(p$rho*p$sigma*x)/(p$beta*exp(g/2))
 }
 
 ## function that computes minus the (approximate) log-likelihood
-mllk <- function(parvect,x,m){
+mllkSVL <- function(parvect,x,m){
   nx <- length(x)
-  p <- pw2pn(parvect)
+  p <- pw2pnSVL(parvect)
   K <- m+1
   gb <- seq(-gbmax,gbmax,length=K)
   g <- (gb[-1]+gb[-K])*0.5             
@@ -466,7 +466,7 @@ mllk <- function(parvect,x,m){
   lscale <- log(sum(foo))
   for (t in 2:nx){
     for (i in 1:m){
-      goo <- dnorm(g,transmu(g[i],x[t-1],p),p$sigma*sqrt(1-p$rho^2))*intlen
+      goo <- dnorm(g,transmuSVL(g[i],x[t-1],p),p$sigma*sqrt(1-p$rho^2))*intlen
       gamma[i,] <- goo/sum(goo)
     }
     foo <- foo%*%gamma*dnorm(x[t],0,beg)
@@ -476,10 +476,10 @@ mllk <- function(parvect,x,m){
 }
 
 ## function that, for given initial values, runs the numerical maximization of the log-likelihood and returns the results
-mle <- function(x,m,beta0,phi0,sigma0,rho0){
-  parvect <- pn2pw(beta0,phi0,sigma0,rho0)
-  mod <- nlm(mllk,parvect,x=x,m=m,stepmax=3,print.level=2,iterlim=10000)
-  p <- pw2pn(mod$estimate)
+mleSVL <- function(x,m,beta0,phi0,sigma0,rho0){
+  parvect <- pn2pwSVL(beta0,phi0,sigma0,rho0)
+  mod <- nlm(mllkSVL,parvect,x=x,m=m,stepmax=3,print.level=2,iterlim=10000)
+  p <- pw2pnSVL(mod$estimate)
   return(list(beta=p$beta,phi=p$phi,sigma=p$sigma,rho=p$rho,mllk=mod$minimum))
 }
 
@@ -495,7 +495,7 @@ m <- 150
 
 ## choice of the model to be fitted (either with conditionally normally distribution or with conditionally t-distributed returns)
 s <- Sys.time()
-modSVL <- mle(obs,m,beta0,phi0,sigma0,rho0)
+modSVL <- mleSVL(obs,m,beta0,phi0,sigma0,rho0)
 Sys.time()-s
 modSVL
 
@@ -638,7 +638,7 @@ PseudoResSVT<- function(y,mod,m){
 library(copula)
 
 ## function that converts natural (constrained) parameters to working (unconstrained) parameters
-pn2pw <- function(beta,phi,sigma,rho,nu){
+pn2pwSVLT <- function(beta,phi,sigma,rho,nu){
   lbeta <- log(beta)
   lphi <- log((1+phi)/(1-phi))
   lsigma <- log(sigma)
@@ -649,7 +649,7 @@ pn2pw <- function(beta,phi,sigma,rho,nu){
 }
 
 ## function that performs the inverse transformation
-pw2pn <- function(parvect){
+pw2pnSVLT <- function(parvect){
   beta <- exp(parvect[1])
   phi <- (exp(parvect[2])-1)/(exp(parvect[2])+1)
   sigma <- exp(parvect[3])
@@ -659,9 +659,9 @@ pw2pn <- function(parvect){
 }
 
 ## function that computes minus the (approximate) log-likelihood
-mllk <- function(parvect,x,m){
+mllkSVLT <- function(parvect,x,m){
   nx <- length(x)
-  p <- pw2pn(parvect)
+  p <- pw2pnSVLT(parvect)
   K <- m+1
   gb <- seq(-gbmax,gbmax,length=K)
   g <- (gb[-1]+gb[-K])*0.5             
@@ -691,10 +691,10 @@ mllk <- function(parvect,x,m){
 }
 
 ## function that, for given initial values, runs the numerical maximization of the log-likelihood and returns the results
-mle <- function(x,m,beta0,phi0,sigma0,rho0,nu0){
-  parvect <- pn2pw(beta0,phi0,sigma0,rho0,nu0)
-  mod <- nlm(mllk,parvect,x=x,m=m,stepmax=3,print.level=2,iterlim=10000)
-  p <- pw2pn(mod$estimate)
+mleSVLT <- function(x,m,beta0,phi0,sigma0,rho0,nu0){
+  parvect <- pn2pwSVLT(beta0,phi0,sigma0,rho0,nu0)
+  mod <- nlm(mllkSVLT,parvect,x=x,m=m,stepmax=3,print.level=2,iterlim=10000)
+  p <- pw2pnSVLT(mod$estimate)
   return(list(beta=p$beta,phi=p$phi,sigma=p$sigma,rho=p$rho,nu=p$nu,mllk=mod$minimum))
 }
 
@@ -711,7 +711,7 @@ m <- 50
 
 ## 
 s <- Sys.time()
-modSVLT <- mle(obs,m,beta0,phi0,sigma0,rho0,nu0)
+modSVLT <- mleSVLT(obs,m,beta0,phi0,sigma0,rho0,nu0)
 Sys.time()-s
 modSVLT
 
