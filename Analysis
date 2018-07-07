@@ -149,7 +149,7 @@ s <- Sys.time()
 modSVN <- mle(obs,m,beta0,phi0,sigma0,nu0)
 Sys.time()-s
 
-BICSVN <- 2*modSVNRoyalDutchShell$mllk+log(length(obs))*3
+BICSVN <- 2*modSVN$mllk+log(length(obs))*3
 
 
 #viterbi decoding for both gaussian
@@ -288,7 +288,7 @@ s <- Sys.time()
 modSVT <- mle(obs,m,beta0,phi0,sigma0,nu0)
 Sys.time()-s
 
-BICSVT <- 2*modSVTRoyalDutchShell$mllk+log(length(obs))*4
+BICSVT <- 2*modSVT$mllk+log(length(obs))*4
 
 
 #viterbi decoding for gaussian and t
@@ -499,7 +499,7 @@ modSVL <- mle(obs,m,beta0,phi0,sigma0,rho0)
 Sys.time()-s
 modSVL
 
-BICSVL <- 2*modSVLRoyalDutchShell$mllk+log(length(obs))*4
+BICSVL <- 2*modSVL$mllk+log(length(obs))*4
 
 #viterbi decoding for correlated Gaussian
 transmu2 <- function(g,x,phi,rho,sigma,beta){
@@ -715,7 +715,7 @@ modSVLT <- mle(obs,m,beta0,phi0,sigma0,rho0,nu0)
 Sys.time()-s
 modSVLT
 
-BICDAXSVLT <- 2*modSVLTRoyalDutchShell$mllk+log(length(obs))*5
+BICDAXSVLT <- 2*modSVLT$mllk+log(length(obs))*5
 
 
 #viterbi decoding
