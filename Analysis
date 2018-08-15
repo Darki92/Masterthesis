@@ -1,3 +1,75 @@
+#############
+### SV-LT ###
+#############
+library(copula)
+
+## function that converts natural (constrained) parameters to working (unconstrained) parameters
+pn2pwSVLT <- function(beta,phi,sigma,rho,nu){
+  lbeta <- log(beta)
+  lphi <- log((1+phi)/(1-phi))
+  lsigma <- log(sigma)
+  lrho <- log((1+rho)/(1-rho))
+  lnu <- log(nu)
+  parvect <- c(lbeta,lphi,lsigma,lrho,lnu)
+  return(parvect)
+}
+
+## function that performs the inverse transformation
+pw2pnSVLT <- function(parvect){
+  beta <- exp(parvect[1])
+  phi <- (exp(parvect[2])-1)/(exp(parvect[2])+1)
+  sigma <- exp(parvect[3])
+  rho <- (exp(parvect[4])-1)/(exp(parvect[4])+1)
+  nu <- exp(parvect[5])
+  return(list(beta=beta,phi=phi,sigma=sigma,rho=rho,nu=nu))
+}
+
+## function that computes minus the (approximate) log-likelihood
+mllkSVLT <- function(parvect,x,m){
+  nx <- length(x)
+  p <- pw2pnSVLT(parvect)
+  K <- m+1
+  gb <- seq(-gbmax,gbmax,length=K)
+  g <- (gb[-1]+gb[-K])*0.5             
+  beg <- p$beta*exp(g/2)   
+  gamma <- matrix(0,m,m)
+  E <- p$phi*g
+  intlen <- gb[2]-gb[1]
+  delta <- dnorm(g,0,p$sigma/sqrt(1-p$phi^2))*intlen # nicht exakt die gleiche Approximation wie in ZML Seite 264
+  foo <- delta*1/beg*dt(x[1]/beg,p$nu)
+  lscale <- log(sum(foo))
+  pnn<-matrix(NA,m,m)
+  for (j in 1:m){
+    pnn[,j]<-pnorm(g[j],E,p$sigma)
+  }
+  for (t in 2:nx){
+    ptt<-pt(x[t-1]/beg,p$nu)
+    for (j in 1:m){
+      gamma[,j] <- dnorm(g[j],E,p$sigma)*dCopula(cbind(ptt,pnn[,j]),normalCopula(p$rho,dim=2))*intlen
+    }
+    for (i in 1:m){
+      if (sum(gamma[i,])>0) gamma[i,] <- gamma[i,]/sum(gamma[i,])
+    }
+    foo <- foo%*%gamma*1/beg*dt(x[t]/beg,p$nu)
+    sumfoo <- sum(foo); lscale <- lscale+log(sumfoo); foo <- foo/sumfoo # scaling
+  }
+  return(-lscale)
+}
+
+## function that, for given initial values, runs the numerical maximization of the log-likelihood and returns the results
+mleSVLT <- function(x,m,beta0,phi0,sigma0,rho0,nu0){
+  parvect <- pn2pwSVLT(beta0,phi0,sigma0,rho0,nu0)
+  mod <- nlm(mllkSVLT,parvect,x=x,m=m,stepmax=3,print.level=2,iterlim=10000)
+  p <- pw2pnSVLT(mod$estimate)
+  return(list(beta=p$beta,phi=p$phi,sigma=p$sigma,rho=p$rho,nu=p$nu,mllk=mod$minimum))
+}
+
+
+
+
+
+
+
 install.packages("copula")
 library(mvtnorm)
 library(copula)
